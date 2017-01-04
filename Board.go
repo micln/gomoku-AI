@@ -121,7 +121,7 @@ func (b *Board) genAvailablePoints() []*Point {
 //	落子
 func (b *Board) GoChess(p *Point, chess ChessType) error {
 	if b.HasChessInPoint(p) {
-		return ErrDuplicate
+		panic(ErrDuplicate)
 	}
 
 	b.mp[p.X][p.Y] = chess
@@ -195,7 +195,7 @@ func (b *Board) MaxMin(dep int) *Point {
 			nb.GoChess(p, C_Robot)
 			defer nb.GoBack()
 
-			v := nb.maxHuman(dep - 1)
+			v := nb.min(dep - 1)
 			if v < best {
 				return
 			}
@@ -234,14 +234,14 @@ func (b *Board) maxAI(dep int) int {
 	wg.Add(len(points))
 
 	for idx := range points {
-		func(p *Point) {
+		go func(p *Point) {
 			defer wg.Done()
 
 			nb := b.copy()
 			nb.GoChess(p, C_Robot)
 			defer nb.GoBack()
 
-			v := nb.maxHuman(dep - 1)
+			v := nb.min(dep - 1)
 			if v > best {
 				best = v
 			}
@@ -253,8 +253,9 @@ func (b *Board) maxAI(dep int) int {
 	return best
 }
 
-//	Player 在当前局势下能拿到的最高分。（evaluation 最小）
-func (b *Board) maxHuman(dep int) int {
+//	Player 走最优解后，当前局势的评分
+//	evaluation 最小
+func (b *Board) min(dep int) int {
 	v := b.Evaluation()
 	if dep <= 0 {
 		return v
