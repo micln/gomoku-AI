@@ -3,6 +3,7 @@ package gomoku_AI
 import (
 	"container/list"
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 )
@@ -12,11 +13,14 @@ type MapType [bSize][bSize]ChessType
 
 const (
 	bSize = 15
+
+	MAX = 1 << 30
+	MIN = -MAX
 )
 
 const (
-	C_Robot ChessType = iota
-	C_Player
+	C_Robot  ChessType = 1
+	C_Player ChessType = 2
 )
 
 var (
@@ -81,6 +85,7 @@ func (b *Board) HasChessInPoint(p *Point) bool {
 	return b.HasChessInXY(p.X, p.Y)
 }
 
+//
 func (b *Board) genAvailablePoints() []*Point {
 
 	if len(b.history) == 0 {
@@ -154,35 +159,61 @@ func (b *Board) Evaluation() int {
 
 func (b *Board) scoreFor(c ChessType) (result int) {
 
-	scores := []int{0, 10, 100, 1000, 10000, 10000}
+	dx := []int{0, 1, 1, -1}
+	dy := []int{1, 0, 1, 1}
 
-	dx := []int{0, 1, 1}
-	dy := []int{1, 0, 1}
+	allMax := 0
 
 	for i := 0; i < b.size; i++ {
 		for j := 0; j < b.size; j++ {
 			if b.HasXYIs(i, j, c) {
-				max := 1
-				for k := 0; k < 3; k++ {
-					if !b.HasXYIs(i+dx[k], j+dy[k], c) {
-						break
+				for k := 0; k < len(dx); k++ {
+					max := 1
+					for r := 1; r < 5; r++ {
+						if !b.HasXYIs(i+dx[k]*r, j+dy[k]*r, c) {
+							break
+						}
+						max++
 					}
-					max++
+					if max > allMax {
+						allMax = max
+					}
 				}
-				max = scores[max]
-				result += max
 			}
 		}
 	}
+	scores := []int{0, 10, 100, 1000, 10000, 10000}
 
+	result = scores[allMax]
+
+	//fmt.Printf("c[%v]:%d\n", c, result)
 	return
 }
 
 //	AI 挑一个最高分的位置
 func (b *Board) MaxMin(dep int) *Point {
-	best := 0
+	best := MIN
 	results := list.New()
 	points := b.genAvailablePoints()
+
+	l := sync.Mutex{}
+	tryPoint := func(v int, p *Point) {
+		l.Lock()
+		defer l.Unlock()
+
+		fmt.Printf("In(%v) score:%d\n", p, v)
+
+		if v < best {
+			return
+		}
+
+		if v > best {
+			best = v
+			results.Init()
+		}
+
+		results.PushBack(p)
+	}
 
 	wg := sync.WaitGroup{}
 	wg.Add(len(points))
@@ -195,17 +226,10 @@ func (b *Board) MaxMin(dep int) *Point {
 			nb.GoChess(p, C_Robot)
 			defer nb.GoBack()
 
-			v := nb.min(dep - 1)
-			if v < best {
-				return
-			}
+			v := nb.playerDfs(dep - 1)
 
-			if v > best {
-				best = v
-				results.Init()
-			}
+			tryPoint(v, p)
 
-			results.PushBack(p)
 		}(points[idx])
 	}
 
@@ -221,13 +245,22 @@ func (b *Board) MaxMin(dep int) *Point {
 }
 
 //	AI 在当前局势下能拿到的最高分
-func (b *Board) maxAI(dep int) int {
+func (b *Board) aiDfs(dep int) int {
 	v := b.Evaluation()
 	if dep <= 0 {
 		return v
 	}
 
-	best := 0
+	best := MIN
+	l := sync.Mutex{}
+	tryV := func(v int) {
+		l.Lock()
+		defer l.Unlock()
+
+		if v > best {
+			best = v
+		}
+	}
 	points := b.genAvailablePoints()
 
 	wg := sync.WaitGroup{}
@@ -241,10 +274,9 @@ func (b *Board) maxAI(dep int) int {
 			nb.GoChess(p, C_Robot)
 			defer nb.GoBack()
 
-			v := nb.min(dep - 1)
-			if v > best {
-				best = v
-			}
+			v := nb.playerDfs(dep - 1)
+			tryV(v)
+
 		}(points[idx])
 	}
 
@@ -255,13 +287,22 @@ func (b *Board) maxAI(dep int) int {
 
 //	Player 走最优解后，当前局势的评分
 //	evaluation 最小
-func (b *Board) min(dep int) int {
+func (b *Board) playerDfs(dep int) int {
 	v := b.Evaluation()
 	if dep <= 0 {
 		return v
 	}
 
-	best := 1 << 30
+	best := MAX
+	l := sync.Mutex{}
+	tryV := func(v int) {
+		l.Lock()
+		defer l.Unlock()
+
+		if v < best {
+			best = v
+		}
+	}
 	points := b.genAvailablePoints()
 
 	wg := sync.WaitGroup{}
@@ -275,10 +316,9 @@ func (b *Board) min(dep int) int {
 			nb.GoChess(p, C_Player)
 			defer nb.GoBack()
 
-			v := nb.maxAI(dep - 1)
-			if v < best {
-				best = v
-			}
+			v := nb.aiDfs(dep - 1)
+			tryV(v)
+
 		}(points[idx])
 	}
 
