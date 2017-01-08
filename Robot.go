@@ -21,7 +21,7 @@ func (r *Robot) HumanGo(x, y int) *Point {
 	log.Printf("Human %d,%d\n", x, y)
 
 	r.Board.GoChess(NewPoint(x, y), C_Player)
-	p := r.Board.MaxMin(4)
+	p := r.Board.BestStep(4)
 	r.Board.GoChess(p, C_Robot)
 
 	log.Printf("Robot %d,%d\n", p.X, p.Y)

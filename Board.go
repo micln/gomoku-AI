@@ -34,11 +34,6 @@ type Board struct {
 	history []*Step
 }
 
-type Step struct {
-	*Point
-	Chess ChessType
-}
-
 func NewBoard() *Board {
 	return &Board{
 		size: bSize,
@@ -46,7 +41,7 @@ func NewBoard() *Board {
 }
 
 //	用来并发处理
-func (b *Board) copy() *Board {
+func (b *Board) Copy() *Board {
 	return &Board{
 		mp:      b.mp,
 		size:    b.size,
@@ -123,6 +118,10 @@ func (b *Board) genAvailablePoints() []*Point {
 	return results
 }
 
+func (b *Board) GoXY(x, y int, chess ChessType) error {
+	return b.GoChess(NewPoint(x, y), chess)
+}
+
 //	落子
 func (b *Board) GoChess(p *Point, chess ChessType) error {
 	if b.HasChessInPoint(p) {
@@ -191,7 +190,7 @@ func (b *Board) scoreFor(c ChessType) (result int) {
 }
 
 //	AI 挑一个最高分的位置
-func (b *Board) MaxMin(dep int) *Point {
+func (b *Board) BestStep(dep int) *Point {
 	best := MIN
 	results := list.New()
 	points := b.genAvailablePoints()
@@ -222,7 +221,7 @@ func (b *Board) MaxMin(dep int) *Point {
 		go func(p *Point) {
 			defer wg.Done()
 
-			nb := b.copy()
+			nb := b.Copy()
 			nb.GoChess(p, C_Robot)
 			defer nb.GoBack()
 
@@ -270,7 +269,7 @@ func (b *Board) aiDfs(dep int) int {
 		go func(p *Point) {
 			defer wg.Done()
 
-			nb := b.copy()
+			nb := b.Copy()
 			nb.GoChess(p, C_Robot)
 			defer nb.GoBack()
 
@@ -312,7 +311,7 @@ func (b *Board) playerDfs(dep int) int {
 		go func(p *Point) {
 			defer wg.Done()
 
-			nb := b.copy()
+			nb := b.Copy()
 			nb.GoChess(p, C_Player)
 			defer nb.GoBack()
 
@@ -325,4 +324,24 @@ func (b *Board) playerDfs(dep int) int {
 	wg.Wait()
 
 	return best
+}
+
+//	当前棋子在每个位置落子后当前局势分
+func (b *Board) CalcScoreMaps(c ChessType) [bSize][bSize]int {
+	maps := [bSize][bSize]int{}
+
+	for i := 0; i < b.size; i++ {
+		for j := 0; j < b.size; j++ {
+			if b.HasChessInXY(i, j) {
+				continue
+			}
+
+			b.GoXY(i, j, c)
+			maps[i][j] = b.Evaluation()
+
+			b.GoBack()
+		}
+	}
+
+	return maps
 }

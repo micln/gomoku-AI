@@ -1,9 +1,8 @@
 package gomoku_AI
 
 import (
-	"time"
-
 	"log"
+	"time"
 )
 
 var start = make(map[string]time.Time)
@@ -15,5 +14,5 @@ func TimeStart(id string) {
 func TimerEnd(id string) {
 	diff := time.Now().Sub(start[id])
 
-	log.Printf("Time[%s] %.3fms\n",id, float64(diff.Nanoseconds()) /1000000)
+	log.Printf("Time[%s] %.3fms\n", id, float64(diff.Nanoseconds())/1000000)
 }
