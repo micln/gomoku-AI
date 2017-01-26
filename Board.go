@@ -1,7 +1,6 @@
 package gomoku_AI
 
 import (
-	"container/list"
 	"errors"
 	"fmt"
 	"log"
@@ -25,6 +24,7 @@ const (
 
 var (
 	ErrDuplicate = errors.New(`duplicate chess`)
+	ErrNoHistory = errors.New(`Empty history`)
 )
 
 type Board struct {
@@ -40,12 +40,12 @@ func NewBoard() *Board {
 	}
 }
 
-//	用来并发处理
+//	主要用来并发搜索，不记 history了暂时
 func (b *Board) Copy() *Board {
 	return &Board{
-		mp:      b.mp,
-		size:    b.size,
-		history: b.history,
+		mp:   b.mp,
+		size: b.size,
+		//history: b.history,
 	}
 }
 
@@ -61,26 +61,30 @@ func (b *Board) History() []*Step {
 	return b.history
 }
 
+func (b *Board) FillMap(m string) {
+
+}
+
 func isValidPoint(x, y int) bool {
 	return x >= 0 && x < bSize && y >= 0 && y < bSize
 }
 
 func (b *Board) HasXYIs(x, y int, c ChessType) bool {
-	return b.HasChessInXY(x, y) && b.mp[x][y] == c
+	return b.HasXY(x, y) && b.mp[x][y] == c
 }
 
-func (b *Board) HasChessInXY(x, y int) bool {
+func (b *Board) HasXY(x, y int) bool {
 	if isValidPoint(x, y) {
 		return b.mp[x][y] != 0
 	}
 	return false
 }
 
-func (b *Board) HasChessInPoint(p *Point) bool {
-	return b.HasChessInXY(p.X, p.Y)
+func (b *Board) HasPoint(p *Point) bool {
+	return b.HasXY(p.X, p.Y)
 }
 
-//
+//	生成可用路径
 func (b *Board) genAvailablePoints() []*Point {
 
 	if len(b.history) == 0 {
@@ -98,7 +102,7 @@ func (b *Board) genAvailablePoints() []*Point {
 				xx := p.X + i
 				yy := p.Y + j
 				if isValidPoint(xx, yy) {
-					if !b.HasChessInXY(xx, yy) {
+					if !b.HasXY(xx, yy) {
 						resultMap[xx][yy] = true
 					}
 				}
@@ -124,7 +128,7 @@ func (b *Board) GoXY(x, y int, chess ChessType) error {
 
 //	落子
 func (b *Board) GoChess(p *Point, chess ChessType) error {
-	if b.HasChessInPoint(p) {
+	if b.HasPoint(p) {
 		panic(ErrDuplicate)
 	}
 
@@ -141,7 +145,7 @@ func (b *Board) GoChess(p *Point, chess ChessType) error {
 //	撤回一步棋
 func (b *Board) GoBack() bool {
 	if len(b.history) == 0 {
-		panic(`Unknow Goback`)
+		panic(ErrNoHistory)
 	}
 
 	last := b.history[len(b.history)-1]
@@ -156,12 +160,23 @@ func (b *Board) Evaluation() int {
 	return b.scoreFor(C_Robot) - b.scoreFor(C_Player)
 }
 
-func (b *Board) scoreFor(c ChessType) (result int) {
+/**
+
+ */
+func (b *Board) scoreForV2(c ChessType) (result int) {
+
+	return
+}
+
+/**
+老算法：连着的几个子会重复计算几次
+*/
+func (b *Board) scoreFor(c ChessType) int {
 
 	dx := []int{0, 1, 1, -1}
 	dy := []int{1, 0, 1, 1}
 
-	allMax := 0
+	maxChess := 0
 
 	for i := 0; i < b.size; i++ {
 		for j := 0; j < b.size; j++ {
@@ -174,8 +189,8 @@ func (b *Board) scoreFor(c ChessType) (result int) {
 						}
 						max++
 					}
-					if max > allMax {
-						allMax = max
+					if max > maxChess {
+						maxChess = max
 					}
 				}
 			}
@@ -183,37 +198,18 @@ func (b *Board) scoreFor(c ChessType) (result int) {
 	}
 	scores := []int{0, 10, 100, 1000, 10000, 10000}
 
-	result = scores[allMax]
-
-	//fmt.Printf("c[%v]:%d\n", c, result)
-	return
+	return scores[maxChess]
 }
 
 //	AI 挑一个最高分的位置
+//	极大值极小值算法
+//	dep 最小为1
 func (b *Board) BestStep(dep int) *Point {
 	best := MIN
-	results := list.New()
+	results := NewPoints()
 	points := b.genAvailablePoints()
 
 	l := sync.Mutex{}
-	tryPoint := func(v int, p *Point) {
-		l.Lock()
-		defer l.Unlock()
-
-		fmt.Printf("In(%v) score:%d\n", p, v)
-
-		if v < best {
-			return
-		}
-
-		if v > best {
-			best = v
-			results.Init()
-		}
-
-		results.PushBack(p)
-	}
-
 	wg := sync.WaitGroup{}
 	wg.Add(len(points))
 
@@ -223,18 +219,31 @@ func (b *Board) BestStep(dep int) *Point {
 
 			nb := b.Copy()
 			nb.GoChess(p, C_Robot)
-			defer nb.GoBack()
 
 			v := nb.playerDfs(dep - 1)
 
-			tryPoint(v, p)
+			l.Lock()
+			defer l.Unlock()
+
+			fmt.Printf("In(%v) score:%d\n", p, v)
+
+			if v < best {
+				return
+			}
+
+			if v > best {
+				best = v
+				results.Init()
+			}
+
+			results.PushBack(p)
 
 		}(points[idx])
 	}
 
 	wg.Wait()
-	log.Printf("AI (%d) paths: %v\n", len(points), points)
-	log.Printf("AI (%d) bests\n", results.Len())
+	log.Printf("AI %d paths: %v\n", len(points), points)
+	log.Printf("%d bests(%v): %v\n", results.Len(), best, results)
 
 	if results.Len() == 0 {
 		panic("no way")
@@ -244,6 +253,7 @@ func (b *Board) BestStep(dep int) *Point {
 }
 
 //	AI 在当前局势下能拿到的最高分
+//	求极大值
 func (b *Board) aiDfs(dep int) int {
 	v := b.Evaluation()
 	if dep <= 0 {
@@ -252,14 +262,6 @@ func (b *Board) aiDfs(dep int) int {
 
 	best := MIN
 	l := sync.Mutex{}
-	tryV := func(v int) {
-		l.Lock()
-		defer l.Unlock()
-
-		if v > best {
-			best = v
-		}
-	}
 	points := b.genAvailablePoints()
 
 	wg := sync.WaitGroup{}
@@ -271,10 +273,15 @@ func (b *Board) aiDfs(dep int) int {
 
 			nb := b.Copy()
 			nb.GoChess(p, C_Robot)
-			defer nb.GoBack()
 
 			v := nb.playerDfs(dep - 1)
-			tryV(v)
+
+			l.Lock()
+			defer l.Unlock()
+
+			if v > best {
+				best = v
+			}
 
 		}(points[idx])
 	}
@@ -285,7 +292,7 @@ func (b *Board) aiDfs(dep int) int {
 }
 
 //	Player 走最优解后，当前局势的评分
-//	evaluation 最小
+//	极小值
 func (b *Board) playerDfs(dep int) int {
 	v := b.Evaluation()
 	if dep <= 0 {
@@ -294,14 +301,6 @@ func (b *Board) playerDfs(dep int) int {
 
 	best := MAX
 	l := sync.Mutex{}
-	tryV := func(v int) {
-		l.Lock()
-		defer l.Unlock()
-
-		if v < best {
-			best = v
-		}
-	}
 	points := b.genAvailablePoints()
 
 	wg := sync.WaitGroup{}
@@ -316,7 +315,13 @@ func (b *Board) playerDfs(dep int) int {
 			defer nb.GoBack()
 
 			v := nb.aiDfs(dep - 1)
-			tryV(v)
+
+			l.Lock()
+			defer l.Unlock()
+
+			if v < best {
+				best = v
+			}
 
 		}(points[idx])
 	}
@@ -332,13 +337,12 @@ func (b *Board) CalcScoreMaps(c ChessType) [bSize][bSize]int {
 
 	for i := 0; i < b.size; i++ {
 		for j := 0; j < b.size; j++ {
-			if b.HasChessInXY(i, j) {
+			if b.HasXY(i, j) {
 				continue
 			}
 
 			b.GoXY(i, j, c)
 			maps[i][j] = b.Evaluation()
-
 			b.GoBack()
 		}
 	}
